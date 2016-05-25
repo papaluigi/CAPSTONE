@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>COURSERA DATA SCIENCE SPECIALIZATION</title>
+  <meta charset="utf-8">
+  <meta name="description" content="COURSERA DATA SCIENCE SPECIALIZATION">
+  <meta name="author" content="Louis-Ferdinand Goffin, aka Papaluigi">
+  <meta name="generator" content="slidify" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta http-equiv="X-UA-Compatible" content="chrome=1">
+  <link rel="stylesheet" href="libraries/frameworks/io2012/css/default.css" media="all" >
+  <link rel="stylesheet" href="libraries/frameworks/io2012/css/phone.css" 
+    media="only screen and (max-device-width: 480px)" >
+  <link rel="stylesheet" href="libraries/frameworks/io2012/css/slidify.css" >
+  <link rel="stylesheet" href="libraries/highlighters/highlight.js/css/tomorrow.css" />
+  <base target="_blank"> <!-- This amazingness opens all links in a new tab. -->  <link rel=stylesheet href="./assets/css/ribbons.css"></link>
+
+  
+  <!-- Grab CDN jQuery, fall back to local if offline -->
+  <script src="http://ajax.aspnetcdn.com/ajax/jQuery/jquery-1.7.min.js"></script>
+  <script>window.jQuery || document.write('<script src="libraries/widgets/quiz/js/jquery.js"><\/script>')</script> 
+  <script data-main="libraries/frameworks/io2012/js/slides" 
+    src="libraries/frameworks/io2012/js/require-1.0.8.min.js">
+  </script>
+  
+  
+
+</head>
+<body style="opacity: 0">
+  <slides class="layout-widescreen">
+    
+    <!-- LOGO SLIDE -->
+        <slide class="title-slide segue nobackground">
+  <aside class="gdbar">
+    <img src="assets/img/press.jpg">
+  </aside>
+  <hgroup class="auto-fadein">
+    <h1>COURSERA DATA SCIENCE SPECIALIZATION</h1>
+    <h2>CAPSTONE Project - The App Pitch</h2>
+    <p>Louis-Ferdinand Goffin, aka Papaluigi<br/></p>
+  </hgroup>
+  <article></article>  
+</slide>
+    
+
+    <!-- SLIDES -->
+    <slide class="" id="slide-1" style="background:;">
+  <hgroup>
+    <h2>Executive Summary</h2>
+  </hgroup>
+  <article data-timings="">
+    <p>The strategy to build our <strong>App</strong> has been the following :</p>
+
+<ul>
+<li>Use a <code>4.6 millions</code> words Training sample from the initial blog dataset provided</li>
+<li>Perform some cleaning operations on the Training sample</li>
+<li>Determine 1-grams, 2-grams, 3-grams in the Training dataset and their respective frequencies</li>
+<li>Using Markov&#39;s assumption, quantify N-grams models respective performances over a <code>1.2 millions</code> words Testing sample, disjoint from the Training dataset </li>
+<li>Propose a prediction model based on the above outcomes, relying on Katz&#39;s back-off approach and Good Turing Discounting </li>
+<li>Build a Shiny App running the algorithm above, with a high focus on <strong>User Interface</strong> and <strong>Performances</strong></li>
+</ul>
+
+  </article>
+  <!-- Presenter Notes -->
+</slide>
+
+<slide class="" id="slide-2" style="background:;">
+  <hgroup>
+    <h2>Quantitative Results</h2>
+  </hgroup>
+  <article data-timings="">
+    <p>N-grams counts in the training set</p>
+
+<!-- html table generated in R 3.2.2 by xtable 1.7-4 package -->
+
+<!-- Wed May 25 10:16:25 2016 -->
+
+<table border=1>
+<tr> <th>  </th> <th> Unigrams </th> <th> Bigrams </th> <th> Trigrams </th>  </tr>
+  <tr> <td align="right"> Counts </td> <td> 109515 </td> <td> 1642788 </td> <td> 3940255 </td> </tr>
+   </table>
+
+<p><BR>
+Then,  for each N-gram, we compute Testing dataset Coverage,in order to get a first estimation of our prediction capacity 
+\[ Coverage = \frac{N_\text{Words seen in the Training set}}{T_\text{Total number of words in the Testing set}} \]</p>
+
+<!-- html table generated in R 3.2.2 by xtable 1.7-4 package -->
+
+<!-- Wed May 25 17:23:53 2016 -->
+
+<table border=1>
+<tr> <th>  </th> <th> Unigrams </th> <th> Bigrams </th> <th> Trigrams </th>  </tr>
+  <tr> <td align="right"> Coverage </td> <td> 98.8% </td> <td> 79.8% </td> <td> 40.9% </td> </tr>
+   </table>
+
+<p><BR></p>
+
+<blockquote>
+<p>Given the relatively poor coverage of Tri-grams, we decide to include all 3 N-grams in our prediction algorithm.</p>
+</blockquote>
+
+  </article>
+  <!-- Presenter Notes -->
+</slide>
+
+<slide class="" id="slide-3" style="background:;">
+  <hgroup>
+    <h2>The Model</h2>
+  </hgroup>
+  <article data-timings="">
+    <p>So, we decide to use a Katz&#39;s Back-off approach, where the probability to see a specific word is given by :
+\[   P(w_n|w_\text{n-2},w_\text{n-1}) =
+\begin{cases}
+\alpha(w_n|w_\text{n-2},w_\text{n-1}) & \text{if $count(w_n|w_\text{n-2},w_\text{n-1})$ > 0 }\\
+\gamma(w_\text{n-2},w_\text{n-1}).P(w_n|w_\text{n-1}) & \text{otherwise }
+\end{cases}
+\]
+This approach reserves some probability mass, \(\gamma\), for the unseen events, and relies on a Good Turing discounting. Below the new counts evaluated up to c=5 :</p>
+
+<!-- html table generated in R 3.2.2 by xtable 1.7-4 package -->
+
+<!-- Wed May 25 18:33:31 2016 -->
+
+<table border=1>
+<tr> <th> c </th> <th> Unigrams </th> <th> Bigrams </th> <th> Trigrams </th>  </tr>
+  <tr> <td align="right">   0 </td> <td align="right"> 0.66 </td> <td align="right"> 0.91 </td> <td align="right"> 0.97 </td> </tr>
+  <tr> <td align="right">   1 </td> <td align="right"> 0.58 </td> <td align="right"> 0.30 </td> <td align="right"> 0.15 </td> </tr>
+  <tr> <td align="right">   2 </td> <td align="right"> 1.62 </td> <td align="right"> 1.21 </td> <td align="right"> 0.98 </td> </tr>
+  <tr> <td align="right">   3 </td> <td align="right"> 2.45 </td> <td align="right"> 2.17 </td> <td align="right"> 1.95 </td> </tr>
+  <tr> <td align="right">   4 </td> <td align="right"> 3.69 </td> <td align="right"> 3.18 </td> <td align="right"> 2.93 </td> </tr>
+  <tr> <td align="right">   5 </td> <td align="right"> 4.82 </td> <td align="right"> 4.15 </td> <td align="right"> 3.90 </td> </tr>
+   </table>
+
+<p><BR></p>
+
+  </article>
+  <!-- Presenter Notes -->
+</slide>
+
+<slide class="" id="slide-4" style="background:;">
+  <hgroup>
+    <h2>The App</h2>
+  </hgroup>
+  <article data-timings="">
+    <h3>Special attention has been brought to App <strong>Weight</strong> and <strong>User Experience</strong>.</h3>
+
+<ul>
+<li><p>Inspired by <a href="http://nlp.cs.berkeley.edu/pubs/Pauls-Klein_2011_LM_paper.pdf">Paul &amp; Klein publication</a>, an indexation of Bi-grams and Tri-grams files has been performed, using Uni-grams as a reference for index. This led to a significant reduction of the size of the files by <code>50%</code> and <code>66%</code> respectively.</p></li>
+<li><p>The App aims to predict the next word <em>on the fly</em>, ie as you are typing (same feature as on your prefered samartphone). The various outputs proposed (Text, Plots, Tabs) are then changing dynamically.</p></li>
+</ul>
+
+<h3>ENJOY !</h3>
+
+  </article>
+  <!-- Presenter Notes -->
+</slide>
+
+    <slide class="backdrop"></slide>
+  </slides>
+  <div class="pagination pagination-small" id='io2012-ptoc' style="display:none;">
+    <ul>
+      <li>
+      <a href="#" target="_self" rel='tooltip' 
+        data-slide=1 title='Executive Summary'>
+         1
+      </a>
+    </li>
+    <li>
+      <a href="#" target="_self" rel='tooltip' 
+        data-slide=2 title='Quantitative Results'>
+         2
+      </a>
+    </li>
+    <li>
+      <a href="#" target="_self" rel='tooltip' 
+        data-slide=3 title='The Model'>
+         3
+      </a>
+    </li>
+    <li>
+      <a href="#" target="_self" rel='tooltip' 
+        data-slide=4 title='The App'>
+         4
+      </a>
+    </li>
+  </ul>
+  </div>  <!--[if IE]>
+    <script 
+      src="http://ajax.googleapis.com/ajax/libs/chrome-frame/1/CFInstall.min.js">  
+    </script>
+    <script>CFInstall.check({mode: 'overlay'});</script>
+  <![endif]-->
+</body>
+  <!-- Load Javascripts for Widgets -->
+  
+  <!-- MathJax: Fall back to local if CDN offline but local image fonts are not supported (saves >100MB) -->
+  <script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+      tex2jax: {
+        inlineMath: [['$','$'], ['\\(','\\)']],
+        processEscapes: true
+      }
+    });
+  </script>
+  <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/2.0-latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+  <!-- <script src="https://c328740.ssl.cf1.rackcdn.com/mathjax/2.0-latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script> -->
+  <script>window.MathJax || document.write('<script type="text/x-mathjax-config">MathJax.Hub.Config({"HTML-CSS":{imageFont:null}});<\/script><script src="libraries/widgets/mathjax/MathJax.js?config=TeX-AMS-MML_HTMLorMML"><\/script>')
+</script>
+<!-- LOAD HIGHLIGHTER JS FILES -->
+  <script src="libraries/highlighters/highlight.js/highlight.pack.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script>
+  <!-- DONE LOADING HIGHLIGHTER JS FILES -->
+   
+  </html>

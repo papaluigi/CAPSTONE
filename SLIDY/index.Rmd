@@ -1,0 +1,108 @@
+---
+title       : COURSERA DATA SCIENCE SPECIALIZATION
+subtitle    : CAPSTONE Project - The App Pitch
+author      : Louis-Ferdinand Goffin, aka Papaluigi
+job         : 
+framework   : io2012        # {io2012, html5slides, shower, dzslides, ...}
+logo        : press.jpg
+highlighter : highlight.js  # {highlight.js, prettify, highlight}
+hitheme     : tomorrow      # 
+widgets     : [mathjax]
+mode        : selfcontained # {standalone, draft}
+knit        : slidify::knit2slides
+---
+
+```{r setup, cache = F, echo = F, message = F, warning = F, tidy = F, results='hide'}
+# make this an external chunk that can be included in any file
+library(knitr)
+options(width = 100)
+opts_chunk$set(message = F, error = F, warning = F, comment = NA, fig.align = 'center', dpi = 100, tidy = F, cache.path = '.cache/', fig.path = 'fig/')
+
+options(xtable.type = 'html')
+options(xtable.size = 0.5)
+knit_hooks$set(inline = function(x) {
+  if(is.numeric(x)) {
+    round(x, getOption('digits'))
+  } else {
+    paste(as.character(x), collapse = ', ')
+  }
+})
+knit_hooks$set(plot = knitr:::hook_plot_html)
+runif(1)
+```
+
+```{r echo=FALSE}
+# LOAD REQUIRED LIBRARIES
+require(data.table)
+library(dplyr)
+library(DT)
+library(stringi)
+library(reshape2)
+require(rCharts)
+library(xtable)
+```
+
+
+## Executive Summary
+The strategy to build our **App** has been the following :
+* Use a `4.6 millions` words Training sample from the initial blog dataset provided
+* Perform some cleaning operations on the Training sample
+* Determine 1-grams, 2-grams, 3-grams in the Training dataset and their respective frequencies
+* Using Markov's assumption, quantify N-grams models respective performances over a `1.2 millions` words Testing sample, disjoint from the Training dataset 
+* Propose a prediction model based on the above outcomes, relying on Katz's back-off approach and Good Turing Discounting 
+* Build a Shiny App running the algorithm above, with a high focus on **User Interface** and **Performances**
+
+---
+
+## Quantitative Results
+N-grams counts in the training set
+```{r echo=FALSE, results='asis'}
+data <- data.frame(c1 = "109515", c2 = "1642788", c3 = "3940255")
+colnames(data) <-c("Unigrams","Bigrams","Trigrams")
+rownames(data) <- c("Counts")
+print(xtable(data, type="html"))
+cat('<BR>')
+```
+Then,  for each N-gram, we compute Testing dataset Coverage,in order to get a first estimation of our prediction capacity 
+$$ Coverage = \frac{N_\text{Words seen in the Training set}}{T_\text{Total number of words in the Testing set}} $$
+```{r echo=FALSE, results='asis'}
+data <- data.frame(c1 = "98.8%", c2 = "79.8%", c3 = "40.9%")
+colnames(data) <-c("Unigrams","Bigrams","Trigrams")
+rownames(data) <- c("Coverage")
+print(xtable(data, type="html"))
+cat('<BR>')
+```
+
+> Given the relatively poor coverage of Tri-grams, we decide to include all 3 N-grams in our prediction algorithm.
+
+---
+
+## The Model
+So, we decide to use a Katz's Back-off approach, where the probability to see a specific word is given by :
+$$   P(w_n|w_\text{n-2},w_\text{n-1}) =
+\begin{cases}
+\alpha(w_n|w_\text{n-2},w_\text{n-1}) & \text{if $count(w_n|w_\text{n-2},w_\text{n-1})$ > 0 }\\
+\gamma(w_\text{n-2},w_\text{n-1}).P(w_n|w_\text{n-1}) & \text{otherwise }
+\end{cases}
+$$
+This approach reserves some probability mass, $\gamma$, for the unseen events, and relies on a Good Turing discounting. Below the new counts evaluated up to c=5 :
+
+
+```{r echo=FALSE, results='asis'}
+GT_SLIDY <- read.csv2(file="GT_SLIDY.csv")
+colnames(GT_SLIDY) <-c("i","c","Unigrams","Bigrams","Trigrams")
+GT_SLIDY <- GT_SLIDY[,c("c","Unigrams","Bigrams","Trigrams")]
+print(xtable(GT_SLIDY, type="html", auto=TRUE), include.rownames=FALSE)
+cat('<BR>')
+```
+
+---
+
+## The App
+### Special attention has been brought to App **Weight** and **User Experience**.
+
+- Inspired by [Paul & Klein publication](http://nlp.cs.berkeley.edu/pubs/Pauls-Klein_2011_LM_paper.pdf), an indexation of Bi-grams and Tri-grams files has been performed, using Uni-grams as a reference for index. This led to a significant reduction of the size of the files by `50%` and `66%` respectively.
+
+- The App aims to predict the next word *on the fly*, ie as you are typing (same feature as on your prefered samartphone). The various outputs proposed (Text, Plots, Tabs) are then changing dynamically.
+
+### ENJOY !
