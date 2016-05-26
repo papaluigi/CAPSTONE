@@ -10,7 +10,8 @@ hitheme     : tomorrow      #
 widgets     : [mathjax]
 mode        : selfcontained # {standalone, draft}
 knit        : slidify::knit2slides
----
+--- bg:yellow
+
 
 
 
@@ -59,7 +60,7 @@ $$   P(w_n|w_\text{n-2},w_\text{n-1}) =
 \gamma(w_\text{n-2},w_\text{n-1}).P(w_n|w_\text{n-1}) & \text{otherwise }
 \end{cases}
 $$
-This approach reserves some probability mass, $\gamma$, for the unseen events, and relies on a Good Turing discounting. Below the new counts evaluated up to c=5 :
+This approach reserves some probability mass, $\gamma$, for the unseen events, and relies on a Good Turing discounting. Below the c^* values evaluated up to c=5 :
 
 
 <!-- html table generated in R 3.2.2 by xtable 1.7-4 package -->

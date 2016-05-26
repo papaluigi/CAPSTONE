@@ -10,7 +10,7 @@ hitheme     : tomorrow      #
 widgets     : [mathjax]
 mode        : selfcontained # {standalone, draft}
 knit        : slidify::knit2slides
----
+--- bg:yellow
 
 ```{r setup, cache = F, echo = F, message = F, warning = F, tidy = F, results='hide'}
 # make this an external chunk that can be included in any file
@@ -41,6 +41,7 @@ library(reshape2)
 require(rCharts)
 library(xtable)
 ```
+
 
 
 ## Executive Summary
@@ -85,7 +86,7 @@ $$   P(w_n|w_\text{n-2},w_\text{n-1}) =
 \gamma(w_\text{n-2},w_\text{n-1}).P(w_n|w_\text{n-1}) & \text{otherwise }
 \end{cases}
 $$
-This approach reserves some probability mass, $\gamma$, for the unseen events, and relies on a Good Turing discounting. Below the new counts evaluated up to c=5 :
+This approach reserves some probability mass, $\gamma$, for the unseen events, and relies on a Good Turing discounting. Below the c^* values evaluated up to c=5 :
 
 
 ```{r echo=FALSE, results='asis'}
