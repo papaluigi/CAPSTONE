@@ -1,0 +1,623 @@
+---
+title: 'Data Science Specialization SwiftKey Capstone : Milestone Report 1'
+author: "LF GOFFIN aka Papaluigi"
+date: "27 avril 2016"
+output: html_document
+---
+
+In this first milestone report, we'll try to understand the basic relationships we observe in the data and prepare to build our first linguistic models.
+
+We'll first conduct an **Exploratory analysis**, performing a thorough exploratory analysis of the data, understanding the distribution of words and relationship between the words in the corpora.
+We'll then work on **understanding variation in the frequencies of words and word pairs** in the data.
+
+```{r basic_lib, warning=FALSE, cache=FALSE}
+library(knitr)
+library(xtable)
+```
+
+#Data Summary
+Let's first unzip the content of the [Swifkey dataset](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip) and analyse its content by running basic stats :
+
+```{r data_load, warning=FALSE, cache=FALSE}
+path <- file.path("final")
+datafolder <- paste(path,"/","en_US",sep="")
+fileList <- list.files(path=datafolder, recursive=T, pattern=".*en_.*.txt")
+
+l <- lapply(paste(datafolder, fileList, sep="/"), function(f) {
+  fsize <- file.info(f)[1]/1024/1024
+  con <- file(f, open="r")
+  lines <- readLines(con, encoding="UTF-8")
+  numChars <- lapply(lines, nchar)
+  maxChars <- which.max(numChars)
+  numWords <- sum(sapply(strsplit(lines, "\\s+"), length))
+  close(con)
+  return(c(f, format(round(fsize, 2), nsmall=2), length(lines), maxChars, numWords))
+})
+```
+
+Key chracteristic of the files are the following :
+```{r data_sum, warning=FALSE, cache=FALSE, results='asis'}
+df <- data.frame(matrix(unlist(l), nrow=length(l), byrow=T))
+colnames(df) <- c("File", "Size(MB)", "Num of lines",
+                  "Longest line", "Num.of.words")
+print(xtable(df), type="html")
+
+# Now let's save space !
+rm(df)
+```
+
+
+#Pre-processing and Cleanup
+At this point, we assume Blog data are much more representative of natural language than News or Twitter data. Therefore, we decide to use Blog data only for the next steps of our analysis. This is not a structural choice, and we are always able to add the others text sources if required.
+
+Let's first sample the data. After several tests performed on multiple sample sizes, we decided a 10% sample is a good compromise in terms of data representativity, computing time and memory-capacity of the machine (which has been clearly an issue here !). Testing this assumption will be one the next steps during this project :
+```{r sampling, cache=FALSE}
+set.seed(4321)
+blog_data <- file(paste(datafolder, fileList, sep="/")[1], open="r")
+blog_lines <- readLines(blog_data, encoding="UTF-8")
+num_blog_lines <- length(blog_lines)
+blog_sample <- blog_lines[sample(1:num_blog_lines, num_blog_lines * 0.2, replace=FALSE)]
+close(blog_data)
+
+# Let's do some space
+rm(blog_lines)
+
+```
+
+Let's load the libraries we need for text data mining (Named in the recommended course lecture on [Text Mining Infrasture in R](http://www.jstatsoft.org/v25/i05/)).
+```{r text_lib, cache=FALSE}
+options(java.parameters = "-Xmx1024m")
+library(NLP)
+library(tm)
+library(RWeka)
+library(SnowballC)
+```
+
+Now, we split this sample into a Training and a Testing sub-samples, and we create the text Corpus corresponding to the training sample and apply few transformation aiming to clean the data : case lowering, removing punctuation, stemming, stripping whitespaces, and also removing profanity words (just a test here; We will come back on that later). We decide not to touch numbers so far :
+```{r corp, cache=FALSE}
+# Let's clean the sample from the potential UTF-8 issues !
+clean_blog_sample <- sapply(blog_sample, function(x) iconv(enc2utf8(x), "UTF-8", "ASCII", sub = " "))
+
+set.seed(4321)
+num_blog_lines <- length(clean_blog_sample)
+train_ind <- sample(1:num_blog_lines, num_blog_lines * 0.8, replace=FALSE)
+clean_blog_train <- clean_blog_sample[train_ind]
+clean_blog_test <- clean_blog_sample[-train_ind]
+
+
+
+#clean_blog_sample <- stri_encode(blog_sample, "", "UTF-8")
+
+# Let's create a single document corpus
+blog_Corp <- Corpus(VectorSource(list(clean_blog_train))) #CREATES A SINGLE DOC
+#blog_Corp <- Corpus(DataframeSource(clean_blog_sample))
+#blog_Corp <- Corpus(VectorSource(clean_blog_sample)) #CREATES MULTIPLE DOCS
+
+# Let's clean the memory
+rm(clean_blog_sample)
+rm(clean_blog_train)
+
+# Let's apply some transformations
+#blog_Corp <- tm_map(blog_Corp, content_transformer(removePunctuation)) #NOT WORKING
+f_rempunc <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+blog_Corp <- tm_map(blog_Corp, f_rempunc, "[[:punct:]]")
+blog_Corp <- tm_map(blog_Corp, f_rempunc, "-")
+blog_Corp <- tm_map(blog_Corp, f_rempunc, "#")
+blog_Corp <- tm_map(blog_Corp, f_rempunc, "@")
+blog_Corp <- tm_map(blog_Corp, f_rempunc, "[0-9]")
+blog_Corp <- tm_map(blog_Corp, content_transformer(tolower))
+blog_Corp <- tm_map(blog_Corp, removeWords, c("fuck","boobs")) # Just for test
+blog_Corp <- tm_map(blog_Corp, stripWhitespace)
+#blog_Corp <- tm_map(blog_Corp, stemDocument, language="english")
+#blog_Corp <- tm_map(blog_Corp, stemCompletion, dictionary=dictCorpus)
+
+```
+
+Now, let's create some N-grams functions up to level 3 :
+```{r ngrams_func, cache=FALSE}
+# Now let's create the N-Gram Tokenizer functions for single words, Bi-Grams and Tri-Grams
+UnigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+```
+
+#Terms frequencies and N-Grams results
+Let's compute the n-gram level 1 to get detailed information on unique words, and let's draw a Top 20 barchart to display unique words frequencies :
+```{r 1gram, cache=FALSE}
+tdm <- TermDocumentMatrix(blog_Corp, control=list(tokenize=UnigramTokenizer))
+
+freq1W <- data.frame(as.matrix(tdm))
+freq1W$term <- rownames(freq1W)
+freq1W <- freq1W[order(-freq1W$X1),]
+# freq1W$index <- 1:nrow(freq1W)
+colnames(freq1W) <- c("freq","term")
+topfreq <- head(freq1W, n=20)
+par(las=2) # X names vertical
+barplot(height=topfreq$freq, names.arg = topfreq$term, cex.names=1, main="Top 20 unique words used in the corpus")
+```
+
+In this corpus, where the total number of unique words used is `r length(freq1W$term)`, one can notice that the distribution is very unequal depending of the words.
+
+Now, let's calculate how many unique words we need in a frequency sorted dictionary to cover 50% of all word instances in the language, and then 90%. We illustrate the results with a cumulated frequencies plot and some colored lines :
+```{r thresholds, cache=FALSE}
+# Cumulated Frequency
+cs <- data.frame(cbind(1:length(freq1W$term), cumsum(freq1W$freq)))
+names(cs) <- c("Num","SumInst")
+plot(cs, main="Cumulated Frequencies of unique words", sub="From top freq. to lowest freq.", xlab="Unique words Index", ylab="Cumulated freq.")
+
+# Calculate 50% threshold and add on plot in red
+th50 <- tail(cs[cs$SumInst<=tail(cumsum(freq1W$freq)*0.5,n=1),], n=1)
+abline(v=th50$Num, col="red")
+abline(h=th50$SumInst, col="red")
+mtext(th50$Num, side=1, line=2, at=th50$Num, col="red")
+mtext("50%", side=2, line=2, at=th50$SumInst, col="red")
+
+# Calculate 90% threshold and add on plot in blue
+th90 <- tail(cs[cs$SumInst<=tail(cumsum(freq1W$freq)*0.9,n=1),], n=1)
+abline(v=th90$Num, col="blue")
+abline(h=th90$SumInst, col="blue")
+mtext(th90$Num, side=1, line=2, at=th90$Num, col="blue")
+mtext("90%", side=2, line=2, at=th90$SumInst, col="blue")
+
+```
+
+So, we can see than `r th90$Num` unique words are necessary to cover 90% of all words instances in the corpus.
+
+For the sake of the exercise, let's draw Top 20 barcharts of bi-grams frequencies and tri-grams frequencies : 
+```{r bi-gram, cache=FALSE}
+tdm <- TermDocumentMatrix(blog_Corp, control=list(tokenize=BigramTokenizer))
+
+freq2W <- data.frame(as.matrix(tdm))
+freq2W$term <- rownames(freq2W)
+freq2W <- freq2W[order(-freq2W$X1),]
+colnames(freq2W) <- c("freq","term")
+topfreq <- head(freq2W, n=20)
+par(las=2)
+barplot(height=topfreq$freq, names.arg = topfreq$term, cex.names=1, main="Top 20 bi-grams used in the corpus")
+```
+
+```{r tri-gram, cache=FALSE}
+tdm <- TermDocumentMatrix(blog_Corp, control=list(tokenize=TrigramTokenizer))
+
+freq3W <- data.frame(as.matrix(tdm))
+freq3W$term <- rownames(freq3W)
+freq3W <- freq3W[order(-freq3W$X1),]
+colnames(freq3W) <- c("freq","term")
+topfreq <- head(freq3W, n=20)
+par(las=2)
+barplot(height=topfreq$freq, names.arg = topfreq$term, cex.names=1, main="Top 20 tri-grams used in the corpus")
+```
+
+#Prediction Model : Markov chain
+In the perspective of building a word prediction tool, idea will be of course not to compute and store all possible n-grams, but to use the **Markov** property which assumes that all that matters to the prediction is the last n-1 words. This model ignores long-range interactions but is relatively simple and proven as very effective.
+Therefore, what we aim to do now is to build a Markov square transition matrix based upon our bi-gram computed above. This is the purpose of the chunk below.
+
+Basically, based upon the data contained in each row the bi-gram, we can compute the probability of the second word of the pair to be typed, given first word of the pair has been typed. 
+
+The first step, splitting the pair of words vector into vectors of single words, we are able to perform :
+```{r split_bigram, cache=FALSE}
+# First, take the bi-gram data
+out <- strsplit(as.character(freq2W$term), split=" ")
+Nfreq2W <- data.frame(freq2W$freq, do.call(rbind, out))
+colnames(Nfreq2W) <- c("freq","term1","term2")
+
+# Let's do some space
+rm(out)
+
+# Next, take the tri-gram data
+out <- strsplit(as.character(freq3W$term), split=" ")
+Nfreq3W <- data.frame(freq3W$freq, do.call(rbind, out))
+colnames(Nfreq3W) <- c("freq","term1","term2","term3")
+
+# Let's do some space
+rm(out)
+
+```
+
+But then, we have to admit that the transition matrix creation pushed our system in its limits in terms of memory, so the below code *is at the moment not evaluated* Just for your information, and in order ease the computation, we have decided to reduce the amount of words considered based upon the 90% threshold calculated above, which means we keep only the words which frequencies represent 90% of the instances in the corpus - But even this option was not sufficient so far to make the calculation possible on my machine. This is one of the key points for the next steps.
+```{r matrix, eval=FALSE}
+#First step : apply 50% threshold on first term of the bi-gram
+keep <- head(freq1W, n=th90$Num)
+#keep <- head(freq1W, 1000)
+#Nfreq2W <- Nfreq2W[(Nfreq2W$X1 %in% keep$term) | (Nfreq2W$X2 %in% keep$term),]
+#Nfreq2W <- Nfreq2W[(Nfreq2W$X1 %in% keep$term),]
+
+
+# cs2W <- data.frame(cbind(1:length(freq2W$term), cumsum(freq2W$X1)))
+# names(cs2W) <- c("Num","SumInst")
+# th902W <- tail(cs2W[cs2W$SumInst<=tail(cumsum(freq2W$X1)*0.9,n=1),], n=1)
+
+#Second step : Initialize the transition matrix
+uterm1 <- unique(Nfreq2W$X1)
+uterm2 <- unique(Nfreq2W$X2)
+
+term1 <- Nfreq2W$X1 # Maybe we can remove this var
+term2 <- Nfreq2W$X2
+bisFreq <- Nfreq2W$freq2W.X1
+
+
+m <- matrix(0, nrow=length(uterm1), ncol=length(uterm1), dimnames = list(uterm1, uterm1))
+m2 <- matrix(0, nrow=length(uterm1), ncol=length(uterm1), dimnames = list(uterm1, uterm1))  
+	#for (i in 1:1) {
+	for (i in 1:length(uterm1)) {                         # The matrix line
+		word1 <- uterm1[i]                                  # The word we search
+		ind1 <- grep(paste("^", word1, "$", sep=""), term1) # Its indexes in the first col of the bigram
+    #rowsum <- sum(bisFreq[ind1])                         
+		for (j in ind1) {                                   # We loop on these indexes
+			word2 <- term2[j]                                 # We find the corresponding 2nd wd
+			val <- bisFreq[j]                                # We find the corresponding freq
+			column <- grep(paste("^", word2, "$", sep=""), uterm1) # We compute the matrix column for dest cell, assuming this is a square matrix
+			print(paste(i, j, val))
+			m[i, column] <- val                               # We set the value
+		}
+	}
+
+m2 <- subset(m,rowSums(m)!=0)
+m2 <- subset(m2,!is.na(rowSums(m2)))
+
+keepnames <- rownames(m2)
+
+m3 <- as.matrix(m2[,colnames(m2) %in% keepnames])
+m3 <- m3/rowSums(m3)
+
+#m2 <- m2[colSums(m2)!=0, drop=FALSE]
+
+# 	for (i in 1:length(uterm1)) {                         # The matrix line
+#     rowsum[i] <- sum(m[i,])                                # We sum all the values
+# 		for (j in 1:length(uterm1)) {                       # We loop on the columns
+# 			m2[i, j] <- m[i, j]/rowsum[i]                         # We set the value
+# 			#print(paste(i, j, m[i,j]))
+# 		}
+#     print(paste(i,sum(m2[i,])))
+# 	}
+
+	for (i in 1:length(uterm1)) {                         # The matrix line
+			print(sum(m[i,]))
+		}
+	
+
+
+```
+
+
+```{r mc_creation, eval=FALSE}
+library(markovchain)
+states <- rownames(m3)
+mcFreq2 <- new("markovchain", states=states, byrow=TRUE, transitionMatrix=m3, name="2WMC")
+
+```
+
+
+```{r mc_test, eval=FALSE}
+# Set initial state
+word1 <- "during"
+istate <- rep(0, length(states))
+w1ind <- grep(paste("^", word1, "$", sep=""), states)
+istate[w1ind] <- 1
+
+n <- 2
+wn <- as.data.frame(t(istate*mcFreq2^n))
+wn$nextw <- rownames(wn)
+wn <- wn[order(-wn$V1),]
+head(wn)
+
+mcFreq2seq <- rmarkovchain(n=20, object=mcFreq2, t0="keep")
+mcFreq2MLE <- markovchainFit(data=mcFreq2seq, method="mle", name="Freq2 MLE")
+predict(object=mcFreq2MLE$estimate, newdata=c("keep", "the", "faith", "during", "the"), n.ahead=3)
+```
+
+
+```{r next_w}
+nextw <- function(word_seq, res){
+  ws_vec <- strsplit(as.character(word_seq), split=" ")
+  l <- length(ws_vec[[1]]) # Number of words in the sequence
+  if(substr(word_seq,(nchar(word_seq)+1)-1,nchar(word_seq)) == " ") l <- l+1
+  
+  if (l>=3){
+    # Search in trigram table based upon words -3, -2 and -1
+    #ind <- grep(paste("^", word(word_seq, -3), "$", sep=""), Nfreq3W$X1)
+    ind <- which(Nfreq3W$X1==word(word_seq, -3))
+    df_tri <- Nfreq3W[ind,]
+    #ind <- grep(paste("^", word(word_seq, -2), "$", sep=""), df_tri$X2)
+    ind <- which(df_tri$X2==word(word_seq, -2))
+    df_tri <- df_tri[ind,]
+    ind <- grep(paste("^", word(word_seq, -1), sep=""), df_tri$X3)
+    res <- df_tri[ind,]
+    if (length(res$X3)==0) l <- 2
+    
+  }
+  if (l==2){
+    # Search in bigram table based upon words -2 and -1
+    #ind <- grep(paste("^", word(word_seq, -2), "$", sep=""), Nfreq2W$X1)
+    ind <- which(Nfreq2W$X1==word(word_seq, -2))
+    df_bi <- Nfreq2W[ind,]
+    ind <- grep(paste("^", word(word_seq, -1), sep=""), df_bi$X2)
+    res <- df_bi[ind,]
+    if (length(res$X2)==0) l <- 1
+    
+  }
+  if (l==1) {
+    # Search in unigram table based upon word being typed
+    ind <- grep(paste("^", word(word_seq, -1), sep=""), freq1W$term)
+    res <- freq1W[ind,]
+  }
+  
+  
+  res <- head(res,3)
+  print(l)
+  return(res)
+}
+
+
+
+```
+
+#Further steps on the path to Capstone Project
+* Manage memory (at least of my machine !) - DONE
+* Finalize the creation of the Markov transition matrix - TOO COMPLEX
+* Handle a Profanity words dictionary (our bit of code worked here, but it was just a test); We found on [GitHub](https://raw.githubusercontent.com/dannygj/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en) a very good starting point) - OK
+* Handle foreign languages (most likely by checking our corpus against a reference dictionary) - STILL ON THE LIST
+* Check the validity of the model on sample data - DONE
+
+```{r GT_creation}
+library(plyr)
+library(dplyr)
+
+
+# Good Turing matrix creation
+G_T <- function(freqdf){
+  
+  
+  GT <- ddply(freqdf, .(freq), summarise, N = length(freq))
+  colnames(GT) <- c("c","N")
+  
+  # Total number of tokens
+  Ntoken <- sum(GT$c * GT$N)
+  
+  # GT smoothing : log interpolation
+  # ind <- which(GT$c<=5)
+  # x <- GT$c[-ind]
+  # y <- GT$N[-ind]
+  
+  # plot(GT1$N~log(GT1$c))
+  # #plot(y ~ x)
+  #
+  # fit <- lm(y ~ log(x))
+  # x <- seq(from=1, to=80000, by=1)
+  # y <- predict(fit, newdata=list(x=seq(from=1, to=80000, by=1)))
+  #
+  # matlines(x, y-coef(fit)[1], lwd=2, col="red")
+  
+  
+  # Computation of Cn* where n <= 5; Other Cn are assumed reliable
+  # We also handle the case of number of lines =1
+  #GT$c_star[1] <- GT$c[1]
+  #if(length(GT$c)!=1){
+  for (i in 1:length(GT$c)) {
+  ifelse(i <= 5,
+  GT$c_star[i] <-
+  (GT$c[i] + 1) * GT$N[GT$c[i] + 1] / GT$N[GT$c[i]],
+  GT$c_star[i] <- GT$c[i])
+  #if(is.na(GT$c_star[i])) GT$c_star[i] <- GT$c[i]
+  }
+  #}
+  
+  
+  
+  # Computation of Actual total number of words for each Cn where n <> 0
+  #GT1 <- head(GT1, n=5) # 5 identified as lowering C0*
+  GT$NTot <- GT$c * GT$N
+  
+  # Computation of Adjusted total number of ngrams for each Cn where n <> 0
+  GT$NTot_star <- GT$c_star * GT$N
+  
+  # Computation of Adjusted probability for each Cn where n <> 0
+  #GT$P_star <- GT$c_star / Ntoken
+  
+  # Normalization
+  #P_star_sum <- sum(GT$P_star)
+  #GT$P_star <- GT$P_star / P_star_sum
+  
+  # Computation of Mass Reserved number of 'unseen' words
+  diff <- sum(GT$NTot) - sum(GT$NTot_star)
+  #diff <- sum(GT$c * GT$N) - sum(GT$c_star * GT$N)
+  print(diff)
+  
+  # Computation of the O Mass Reserved elements
+  c_star0 <- diff / GT$N[1]
+  #p_star0 <- c_star0/Ntoken
+  
+  # Creation of the line item in the df
+  #c0 <- data.frame(c=0, N=0,c_star=c_star0,NTot=0,NTot_star=diff, P_star=p_star0)
+  #c0 <- data.frame(c=0, N=0,c_star=c_star0)
+  c0 <- data.frame(
+  c = 0, N = 0,c_star = c_star0,NTot = 0,NTot_star = diff
+  )
+  GT <- rbind(c0, GT)
+  GT <- GT[order(GT$c),]
+  
+  # Remove unncessary columns
+  GT <- GT[,c("c","N","c_star","NTot","NTot_star")]
+  
+  
+  print(c_star0)
+  #print(p_star0)
+  
+  return(GT)
+  
+} #End of function GT
+
+
+# Computation of GT Matrix for all ngrams
+GT1 <- G_T(freq1W)
+GT2 <- G_T(freq2W)
+GT3 <- G_T(freq3W)
+
+```
+
+```{r Test_sample_init}
+# HERE WE TEST THE UNIGRAM MODEL
+# Creates Test Corpus
+blog_Corp_test <- Corpus(VectorSource(list(clean_blog_test))) #CREATES A SINGLE DOC
+
+#rm(clean_blog_test)
+
+# Let's apply some transformations
+f_rempunc <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+blog_Corp_test <- tm_map(blog_Corp_test, f_rempunc, "[[:punct:]]")
+blog_Corp_test <- tm_map(blog_Corp_test, f_rempunc, "-")
+blog_Corp_test <- tm_map(blog_Corp_test, f_rempunc, "#")
+blog_Corp_test <- tm_map(blog_Corp_test, f_rempunc, "@")
+blog_Corp_test <- tm_map(blog_Corp_test, f_rempunc, "[0-9]")
+blog_Corp_test <- tm_map(blog_Corp_test, content_transformer(tolower))
+blog_Corp_test <- tm_map(blog_Corp_test, removeWords, c("fuck","boobs")) # Just for test
+blog_Corp_test <- tm_map(blog_Corp_test, stripWhitespace)
+
+tdm_test <- TermDocumentMatrix(blog_Corp_test, control=list(tokenize=UnigramTokenizer))
+
+freq1Wtest <- data.frame(as.matrix(tdm_test))
+freq1Wtest$term <- rownames(freq1Wtest)
+freq1Wtest <- freq1Wtest[order(-freq1Wtest$X1),]
+freq1Wtest$index <- 1:nrow(freq1Wtest)
+colnames(freq1Wtest) <- c("freq","term","index")
+topfreqtest <- head(freq1Wtest, n=20)
+par(las=2) # X names vertical
+barplot(height=topfreqtest$freq, names.arg = topfreqtest$term, cex.names=1, main="Top 20 unique words used in the Test corpus")
+
+
+tdm_test <- TermDocumentMatrix(blog_Corp_test, control=list(tokenize=BigramTokenizer))
+
+freq2Wtest <- data.frame(as.matrix(tdm_test))
+freq2Wtest$term <- rownames(freq2Wtest)
+freq2Wtest <- freq2Wtest[order(-freq2Wtest$X1),]
+colnames(freq2Wtest) <- c("freq","term")
+topfreq <- head(freq2Wtest, n=20)
+par(las=2)
+barplot(height=topfreq$freq, names.arg = topfreq$term, cex.names=1, main="Top 20 bi-grams used in the corpus")
+
+tdm_test <- TermDocumentMatrix(blog_Corp_test, control=list(tokenize=TrigramTokenizer))
+
+freq3Wtest <- data.frame(as.matrix(tdm_test))
+freq3Wtest$term <- rownames(freq3Wtest)
+freq3Wtest <- freq3Wtest[order(-freq3Wtest$X1),]
+colnames(freq3Wtest) <- c("freq","term")
+topfreq <- head(freq3Wtest, n=20)
+par(las=2)
+barplot(height=topfreq$freq, names.arg = topfreq$term, cex.names=1, main="Top 20 tri-grams used in the corpus")
+
+```
+
+```{r coverage}
+# This function computes the coverage of the test sample
+coverage <- function(freqdf, freqdftest){
+  seen <- semi_join(freqdftest, freqdf, by="term")
+  #unseen <- anti_join(freqdftest, freqdf, by="term")
+
+  #cov <- length(seen$term) / length(freqdftest$term)
+  cov <- sum(seen$freq) / sum(freqdftest$freq)
+  return(cov)  
+}
+
+cover1 <- coverage(freq1W,freq1Wtest)
+cover2 <- coverage(freq2W,freq2Wtest)
+cover3 <- coverage(freq3W,freq3Wtest)
+```
+
+
+```{r probs, eval=FALSE}
+
+# This function computes the smooth probabilities - FALSE !
+prob <- function(freqdf, GT){
+    # Computation of smoothed probabilities in training set
+  probdf <- freqdf
+  
+  for (i in 1:length(GT$c)){
+    
+    ind <- which(freqdf$freq==GT$c[i])
+    if(length(ind)!=0) probdf$P_star[ind] <- GT$P_star[i]
+    
+  }
+  
+  
+#   for (i in 1:length(freqdf$freq)){
+#     probdf$P_star[i] <- GT$P_star[GT$c==probdf$freq[i]] 
+#   }
+  
+  p0 <- data.frame(freq=0, term="<UNK>",P_star=GT$P_star[GT$c==0])
+  probdf <- rbind(probdf, p0)
+  
+  return(probdf)
+}
+
+prob1 <- prob(freq1W, GT1)
+prob2 <- prob(freq2W, GT2)
+prob3 <- prob(freq3W, GT3)
+
+```
+
+```{r}
+Perplexity <- function(freqdftest, probdf){
+  # We apply the smoothed probs on test set
+  
+  com <- semi_join(probdf, freqdftest, by="term")
+  unseen <- anti_join(freqdftest, probdf, by="term")
+
+  com <- com[,c("freq", "term", "P_star")]
+  unseen$P_star <- probdf$P_star[probdf$term=="<UNK>"]
+  unseen <- unseen[,c("freq", "term", "P_star")]
+  
+  glob <- rbind(com, unseen)
+  
+#   for (i in 1:length(freqdftest$freq)){
+#     ifelse(length(probdf$P_star[probdf$term==freqdftest$term[i]])!=0,  
+#     freqdftest$P_star[i] <- probdf$P_star[probdf$term==freqdftest$term[i]],
+#     freqdftest$P_star[i] <- probdf$P_star[probdf$term=="<UNK>"])
+#   }
+
+  # Entropy computation
+  H <- sum(log2(glob$P_star*glob$freq))
+  #H <- -(1/sum(glob$freq)*H)
+  H <- -(1/sum(freq1Wtest$freq)*H)
+  print(H)
+
+  Perp <- 2^H
+  return(Perp)
+
+}
+
+p1 <- Perplexity(freq1Wtest, prob1)
+p2 <- Perplexity(freq2Wtest, prob2)
+p3 <- Perplexity(freq3Wtest, prob3)
+
+```
+
+```{r DF_compression}
+
+# CREATION OF INDEXES
+freq1W$index <- 1:nrow(freq1W)
+colnames(freq1W) <- c("freq","term","index")
+
+# BIGRAMS DF COMPRESSION BY USAGE OF INDEXES
+
+Nfreq2Wci <- merge(x=Nfreq2W, y=freq1W, by.x="X1", by.y="term")
+colnames(Nfreq2Wci)[which(names(Nfreq2Wci) == "index")] <- "index1"
+Nfreq2Wc <- merge(x=Nfreq2Wci, y=freq1W, by.x="X2", by.y="term")
+colnames(Nfreq2Wc)[which(names(Nfreq2Wc) == "index")] <- "index2"
+keeps <- c("freq2W.X1","index1","index2")
+Nfreq2Wc <- Nfreq2Wc[,names(Nfreq2Wc) %in% keeps]
+
+rm(Nfreq2Wci)
+
+Nfreq3Wci <- merge(x=Nfreq3W, y=freq1W, by.x="X1", by.y="term")
+colnames(Nfreq3Wci)[which(names(Nfreq3Wci) == "index")] <- "index1"
+Nfreq3Wcii <- merge(x=Nfreq3Wci, y=freq1W, by.x="X2", by.y="term")
+colnames(Nfreq3Wcii)[which(names(Nfreq3Wcii) == "index")] <- "index2"
+Nfreq3Wc <- merge(x=Nfreq3Wcii, y=freq1W, by.x="X3", by.y="term")
+colnames(Nfreq3Wc)[which(names(Nfreq3Wc) == "index")] <- "index3"
+keeps <- c("freq3W.X1","index1","index2","index3")
+Nfreq3Wc <- Nfreq3Wc[,names(Nfreq3Wc) %in% keeps]
+
+rm(Nfreq3Wci)
+rm(Nfreq3Wcii)
+
+```
